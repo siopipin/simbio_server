@@ -1,0 +1,5 @@
+{
+    "env" :{
+        "JWT_KEY" : "giving_bimbel_2018"
+    }
+}
