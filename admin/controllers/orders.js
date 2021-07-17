@@ -1,6 +1,8 @@
 const conn = require('./db')
 const async = require('async')
 const messaging = require('./messaging')
+const variables = require('../../variables')
+const connection = require('./db')
 
 function getDateNow() {
     var dt = new Date()
@@ -83,7 +85,7 @@ exports.list_pre_order = (req, res, next) => {
 exports.get_view_preorder = (req, res, next) => {
     var id = req.params.id
 
-    conn.query("select a.id, a.id_customer, a.nama_pasien, b.nama as customer, b.email as email_customer, b.no_hp as no_hp_customer, b.alamat as alamat_customer, b.poin as poin_customer, a.tanggal, a.tanggal_target_selesai, a.status, a.ongkir, a.extra_charge, a.poin, a.kode_voucher, a.diskon, a.status_invoice, a.tanggal_invoice from tbl_preorder a LEFT JOIN tbl_customers b ON a.id_customer = b.id WHERE a.id = " + id, (err, rows) => {
+    conn.query("select a.id, a.id_customer, a.nama_pasien, b.nama as customer, b.email as email_customer, b.no_hp as no_hp_customer, b.alamat as alamat_customer, b.poin as poin_customer, a.tanggal, a.tanggal_target_selesai, a.status, a.ongkir, a.extra_charge, a.poin, a.kode_voucher, a.diskon, a.status_invoice, a.tanggal_invoice, a.instruksi from tbl_preorder a LEFT JOIN tbl_customers b ON a.id_customer = b.id WHERE a.id = " + id, (err, rows) => {
         var item = rows.length > 0 ? rows[0] : {};
         var details = []
         if (rows.length > 0) {
@@ -115,6 +117,15 @@ exports.simpan_preorder = (req, res, next) => {
         if (err) res.status(400).json(err);
         else {
 
+            conn.query("select token from tbl_customers where id = " + order.id_customer, (err, rows) => {
+                let tokens = []
+                for (let item of rows)
+                    if (item.token) tokens.push(item.token)
+                if (tokens.length > 0) {
+                    messaging.sendNotif('Order Baru', 'Order baru telah dibuat dengan ID Order #' + order.id_order, tokens)
+                }
+            })
+
             conn.query("select * from tbl_preorder where id = " + id_preorder, (errors, rowpre) => {
                 conn.query("update tbl_preorder set status = 1 where id = " + id_preorder, (errr, rsltt) => { })
                 var intruksi = rowpre[0].intruksi
@@ -144,324 +155,122 @@ exports.simpan_preorder = (req, res, next) => {
 }
 
 
-function monoliticJadwal2(order, bahan, tgl_libur, cb) {
-    var jlh = 0
-    var summaries = []
-    var tanggal = order.tanggal
+exports.decline_preorder = (req, res) => {
+    var id = req.body.id
 
+    conn.query("update tbl_preorder set status = 2 where id = " + id, (err, result) => {
+        if (err) res.status(400).json(err)
+        else {
 
-
-    data_jadwal = []
-
-    conn.query("select * from tbl_jadwal_summary where tanggal>='" + order.tanggal + "' order by tanggal asc", (err, row) => {
-        summaries = row
-        if (summaries.length <= 0) {
-            summaries = [{ tanggal: order.tanggal, monolitic: 0, layering: 0, ld_press: 0 }]
-        }
-
-        while (bahan.length > 0) {
-            for (let summary of summaries) {
-                tanggal = formatDate(summary.tanggal)
-
-                while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0) {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                    summary.tanggal = tanggal
+            conn.query("select token from tbl_customers where id = " + req.body.id_customer, (err, rows) => {
+                let tokens = []
+                for (let item of rows)
+                    if (item.token) tokens.push(item.token)
+                if (tokens.length > 0) {
+                    messaging.sendNotif('Pre Order', 'Duh, pre-order anda terpaksa kami tolak. Hubungi kami untuk informasi lebih lanjut.', tokens)
                 }
-
-                jlh = 0;
-                if (bahan.length == 14) {
-                    if (summary.monolitic == 0 && summary.ld_press == 0 && summary.layering == 0) {
-                        for (let i = 0; i < bahan.length; i++) {
-                            var item = bahan[i]
-                            data_jadwal.push([0, order.id, item.id_product, order.id_order, 'monolitic', summary.tanggal])
-                            summary.monolitic = summary.monolitic + 1
-                            jlh += 1
-                        }
-                    }
-                } else if (bahan.length <= 10) {
-                    if (summary.monolitic <= 10 - bahan.length) {
-                        for (let i = 0; i < bahan.length; i++) {
-                            var item = bahan[i]
-                            data_jadwal.push([0, order.id, item.id_product, order.id_order, 'monolitic', summary.tanggal])
-                            summary.monolitic = summary.monolitic + 1
-                            jlh += 1
-                        }
-                    }
-                } else {
-                    if (summary.monolitic == 0 && summary.ld_press == 0 && summary.layering == 0) {
-                        for (let i = 0; i < 14; i++) {
-                            if (i < bahan.length) {
-                                var item = bahan[i]
-                                data_jadwal.push([0, order.id, item.id_product, order.id_order, 'monolitic', summary.tanggal])
-                                summary.monolitic = summary.monolitic + 1
-                                jlh += 1
-                            }
-
-                        }
-                    }
-                }
-                if (jlh > 0) bahan.splice(0, jlh)
-            }
-            if (bahan.length > 0) {
-                do {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                } while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0)
-
-
-                var summary = {
-                    tanggal: tanggal,
-                    monolitic: 0,
-                    layering: 0,
-                    ld_press: 0
-                }
-                summaries.push(summary)
-            }
-        }
-
-        async.eachSeries(summaries, (summary, cb_sum) => {
-            conn.query("REPLACE INTO tbl_jadwal_summary SET ?", summary, (err, rslt) => {
-                cb_sum(null)
             })
-        }, error => {
-            conn.query("INSERT INTO tbl_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
-                cb(null);
-            })
-        }) 
 
-    })
-
-}
-
-function layeringJadwal(order, bahan, tgl_libur, cb) {
-    var jlh = 0
-    var summaries = []
-    var tanggal = order.tanggal
-
-    data_jadwal = []
-
-
-    conn.query("select * from tbl_jadwal_summary where tanggal>='" + order.tanggal + "' order by tanggal asc", (err, row) => {
-        summaries = row
-        if (summaries.length <= 0) {
-            summaries = [{ tanggal: order.tanggal, monolitic: 0, layering: 0, ld_press: 0 }]
+            res.json(result)
         }
-
-        while (bahan.length > 0) {
-            for (let summary of summaries) {
-                tanggal = formatDate(summary.tanggal)
-
-                while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0) {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                    summary.tanggal = tanggal
-                }
-
-                jlh = 0;
-                for (let i = 0; i < bahan.length; i++) {
-                    var item = bahan[i]
-                    if (summary.monolitic <= 10 && summary.ld_press + summary.layering < 4) {
-                        data_jadwal.push([0, order.id, item.id_product, order.id_order, 'layering', summary.tanggal])
-                        summary.layering = summary.layering + 1
-                        jlh += 1
-                    }
-                }
-                if (jlh > 0) bahan.splice(0, jlh)
-            }
-            if (bahan.length > 0) {
-                do {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                } while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0)
-
-                var summary = {
-                    tanggal: tanggal,
-                    monolitic: 0,
-                    layering: 0,
-                    ld_press: 0
-                }
-                summaries.push(summary)
-            }
-        }
-
-        async.eachSeries(summaries, (summary, cb_sum) => {
-            conn.query("REPLACE INTO tbl_jadwal_summary SET ?", summary, (err, rslt) => {
-                cb_sum(null)
-            })
-        }, error => {
-            conn.query("INSERT INTO tbl_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
-                cb(null);
-            })
-        })
-
     })
 }
 
-function ldpressJadwal(order, bahan, tgl_libur, cb) {
-    var jlh = 0
-    var summaries = []
-    var tanggal = order.tanggal
 
-    data_jadwal = []
-
-    conn.query("select * from tbl_jadwal_summary where tanggal>='" + order.tanggal + "' order by tanggal asc", (err, row) => {
-        summaries = row
-        if (summaries.length <= 0) {
-            summaries = [{ tanggal: order.tanggal, monolitic: 0, layering: 0, ld_press: 0 }]
-        }
-
-        while (bahan.length > 0) {
-            for (let summary of summaries) {
-                tanggal = formatDate(summary.tanggal)
-
-                while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0) {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                    summary.tanggal = tanggal
-                }
-
-                jlh = 0;
-                for (let i = 0; i < bahan.length; i++) {
-                    var item = bahan[i]
-                    if (summary.monolitic <= 10 && summary.ld_press + summary.layering < 4) {
-                        data_jadwal.push([0, order.id, item.id_product, order.id_order, 'ld press', summary.tanggal])
-                        summary.ld_press = summary.ld_press + 1
-                        jlh += 1
-                    }
-                }
-
-                if (jlh > 0) bahan.splice(0, jlh)
-            }
-            if (bahan.length > 0) {
-                do {
-                    var dt = new Date(tanggal)
-                    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
-                    if (dt2.getDay() == 0) {
-                        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
-                    }
-                    tanggal = formatDate(dt2);
-                } while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0)
-
-                var summary = {
-                    tanggal: tanggal,
-                    monolitic: 0,
-                    layering: 0,
-                    ld_press: 0
-                }
-                summaries.push(summary)
-            }
-        }
-        
-        async.eachSeries(summaries, (summary, cb_sum) => {
-            conn.query("REPLACE INTO tbl_jadwal_summary SET ?", summary, (err, rslt) => {
-                cb_sum(null)
-            })
-        }, error => {
-            conn.query("INSERT INTO tbl_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
-                cb(null);
-            })
-        })
-
-
-    })
-
-}
 
 function tentukanJadwal(order, detail_order) {
     let dt = new Date(order.tanggal)
     let today = formatDate(dt)
     let tgl_libur = []
+    let max_item = 20
+    let jumlah_item = detail_order.length
 
-    conn.query("select * from tbl_libur where tanggal >='" + today + "'", (err, rows) => {
-        for (let item of rows) {
-            item.tanggal = formatDate(new Date(item.tanggal))
-            tgl_libur.push(item)
-        }
-        console.log(tgl_libur)
+    var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate())
+    if (dt2.getDay() == 0) {
+        dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
+        tanggal = formatDate(dt2);
+    }
 
-        var layering = detail_order.filter(it => it.bahan_product.toLowerCase() == 'feldspathic' || it.bahan_product.toLowerCase() == 'porcelain')
-        var ldpress = detail_order.filter(it => it.bahan_product.toLowerCase() == 'ld press')
-        var monolitic = detail_order.filter(it => it.bahan_product.toLowerCase() == 'zirconia')
+    conn.query("SELECT a.tanggal, count(a.id) + COALESCE(b.jumlah, 0) as jumlah from tbl_jadwal a LEFT OUTER JOIN tbl_block_jadwal b ON a.tanggal = b.tanggal where a.tanggal>='" + today + "' group by a.tanggal UNION SELECT b.tanggal, count(a.id)+ COALESCE(b.jumlah, 0) as jumlah from tbl_jadwal a RIGHT OUTER JOIN tbl_block_jadwal b ON a.tanggal = b.tanggal where b.tanggal>='" + today + "' group by b.tanggal", (err, rows) => {
+        var tanggal = today
+        var get_date = false
 
-        var bahans = [
-            monolitic,
-            layering,
-            ldpress
-        ]
-
-        var index = 0
-
-        async.eachSeries(bahans, (bahan, cb) => {
-            index += 1
-            if (bahan.length <= 0) cb(null)
-            else {
-                if (index == 1) monoliticJadwal2(order, bahan, tgl_libur, cb)
-                else if (index == 2) layeringJadwal(order, bahan, tgl_libur, cb)
-                else ldpressJadwal(order, bahan, tgl_libur, cb)
+        conn.query("select * from tbl_libur where tanggal >='" + tanggal + "'", (err, rows2) => {
+            for (let item of rows2) {
+                item.tanggal = formatDate(new Date(item.tanggal))
+                tgl_libur.push(item)
             }
-        }, error => {
-            console.log('Selesai')
+
+            do {
+                var selected = rows.filter(it => formatDate(it.tanggal) == tanggal)
+                if (selected.length > 0) {
+                    var jumlah = selected[0].jumlah + jumlah_item
+                    if (jumlah <= max_item) {
+                        get_date = true
+                    } else {
+                        var dt = new Date(tanggal)
+                        var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
+                        if (dt2.getDay() == 0) {
+                            dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
+                        }
+                        tanggal = formatDate(dt2);
+                    }
+                } else {
+                    while (tgl_libur.filter(it => it.tanggal == tanggal).length > 0) {
+                        var dt = new Date(tanggal)
+                        var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
+                        if (dt2.getDay() == 0) {
+                            dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
+                        }
+                        tanggal = formatDate(dt2);
+                    }
+
+                    var selected2 = rows.filter(it => formatDate(it.tanggal) == tanggal)
+                    if (selected2.length > 0) {
+                        var jumlah = selected2[0].jumlah + jumlah_item
+                        if (jumlah <= max_item) {
+                            get_date = true
+                        } else {
+                            var dt = new Date(tanggal)
+                            var dt2 = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)
+                            if (dt2.getDay() == 0) {
+                                dt2 = new Date(dt2.getFullYear(), dt2.getMonth(), dt2.getDate() + 1)
+                            }
+                            tanggal = formatDate(dt2);
+                        }
+                    } else {
+                        get_date = true
+                    }
+                }
+
+            } while (!get_date)
+
+            var data_jadwal = []
+            for (let item of detail_order) {
+                data_jadwal.push([0, order.id, item.id_product, order.id_order, item.bahan_product, tanggal])
+            }
+
+            conn.query("INSERT INTO tbl_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
+                console.log('Selesai set di tanggal : ' + tanggal)
+            })
+
         })
+
     })
+
 }
 
 
-function tentukanJadwal2(order, detail_order, cbs) {
-    let dt = new Date(order.tanggal)
-    let today = formatDate(dt)
-    let tgl_libur = []
 
-    conn.query("select * from tbl_libur where tanggal >='" + today + "'", (err, rows) => {
-        for (let item of rows) {
-            item.tanggal = formatDate(new Date(item.tanggal))
-            tgl_libur.push(item)
-        }
+function draftJadwal(order, detail_order) {
+    let tanggal = formatDate(order.tanggal)
+    var data_jadwal = []
+    for (let item of detail_order) {
+        data_jadwal.push([0, order.id, item.id_product, order.id_order, item.bahan_product, tanggal])
+    }
 
-        var layering = detail_order.filter(it => it.bahan_product.toLowerCase() == 'feldspathic' || it.bahan_product.toLowerCase() == 'porcelain')
-        var ldpress = detail_order.filter(it => it.bahan_product.toLowerCase() == 'ld press')
-        var monolitic = detail_order.filter(it => it.bahan_product.toLowerCase() == 'zirconia')
-
-        var bahans = [
-            monolitic,
-            layering,
-            ldpress
-        ]
-
-        var index = 0
-
-        async.eachSeries(bahans, (bahan, cb) => {
-            index += 1
-            if (bahan.length <= 0) cb(null)
-            else {
-                if (index == 1) monoliticJadwal2(order, bahan, tgl_libur, cb)
-                else if (index == 2) layeringJadwal(order, bahan, tgl_libur, cb)
-                else ldpressJadwal(order, bahan, tgl_libur, cb)
-            }
-        }, error => {
-            console.log('Selesai')
-            cbs(null)
-        })
+    conn.query("INSERT INTO tbl_draft_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
+        console.log('Selesai set draft_jadwal')
     })
 
 }
@@ -487,16 +296,26 @@ exports.simpan_order = (req, res, next) => {
     //order.tanggal = getDateNow()
     var detail_order = req.body.detail_order
     var grand_total = order.total + order.ongkir + order.extra_charge - (order.diskon / 100 * order.total) - order.poin
+    var set_jadwal = req.body.set_jadwal
     var sisa_poin = 0
     if (grand_total < 0) {
         sisa_poin = grand_total * -1;
         order.poin = order.poin - sisa_poin
     }
+
     conn.query("INSERT INTO tbl_order SET ?", order, (err, result) => {
         if (err) res.status(400).json(err);
         else {
-            conn.query("update tbl_customers set poin = " + sisa_poin + " where id = " + order.id_customer, (errr, rsltt) => { })
-
+            if(order.poin>0){
+                conn.query("update tbl_customers set poin = " + sisa_poin + " where id = " + order.id_customer, (errr, rsltt) => { })
+                var history_poin =  {
+                    id_customer : order.id_customer,
+                    id_order : result.insertId,
+                    poin : order.poin,
+                    flag : 0
+                }
+                conn.query("INSERT INTO tbl_history_poin SET ?", history_poin, (errr, rsltt)=>{})
+            }
             var id = result.insertId;
             var data_detail = []
             order.id = id;
@@ -504,7 +323,8 @@ exports.simpan_order = (req, res, next) => {
                 data_detail.push([id, item.id_product, item.warna, item.posisi, item.harga_product, item.poin, 1, item.garansi])
             }
             conn.query("INSERT INTO tbl_order_detail (id_order, id_product, warna, posisi_gigi, harga, poin, status, garansi) VALUES ?", [data_detail], (er, rslt) => {
-                tentukanJadwal(order, detail_order) //function tentukan jadwal
+                if(set_jadwal == 1) draftJadwal(order, detail_order)
+                else tentukanJadwal(order, detail_order)
                 console.log(er);
                 res.json(result);
             })
@@ -672,13 +492,33 @@ exports.update_invoice = (req, res, next) => {
             var poin_customer = order.poin_customer
             if (status == 2) {
                 if (order.poin > 0) {
-                    conn.query("INSERT INTO tbl_history_poin SET ?", { id_customer: order.id_customer, id_order: order.id, poin: order.poin * -1 }, (err, rslt) => { })
+                    conn.query("INSERT INTO tbl_history_poin SET ?", { id_customer: order.id_customer, id_order: order.id, poin: order.poin * -1, flag: 0 }, (err, rslt) => { })
                 }
 
-                poin_customer = poin_customer + earn_poin
-                conn.query("INSERT INTO tbl_history_poin SET ?", { id_customer: order.id_customer, id_order: order.id, poin: earn_poin }, (err, rslt) => { })
+
+                /* cek poin pending */
+                conn.query("select * from tbl_history_poin where id_order = " + order.id + " and flag = 2", (er, rw) => {
+                    if (rw.length > 0) {
+                        var earn_poin = rw[0].poin
+                        poin_customer = poin_customer + earn_poin
+
+                        conn.query("update tbl_history_poin set flag = 1 where id = " + rw[0].id, (er, rlst) => { })
+
+                        conn.query("update tbl_customers set poin = " + poin_customer + ", poin_pending = poin_pending - " + earn_poin + " where id = " + order.id_customer, (errr, rsltt) => {
+                            conn.query("select token from tbl_customers where id = " + order.id_customer, (err, data_cust) => {
+                                var tokens = []
+                                for (let itm of data_cust) {
+                                    if (itm.token) tokens.push(itm.token)
+                                }
+                                if (tokens.length > 0)
+                                    messaging.sendNotif('Zirmon Dental Atelier', 'Selamat! Anda mendapat poin senilai ' + earn_poin + '.', tokens)
+                            })
+                        })
+                    }
+                })
+
+                /*conn.query("INSERT INTO tbl_history_poin SET ?", { id_customer: order.id_customer, id_order: order.id, poin: earn_poin }, (err, rslt) => { }) */
             }
-            conn.query("update tbl_customers set poin = " + poin_customer + " where id = " + order.id_customer, (errr, rsltt) => { })
 
             conn.query("REPLACE INTO tbl_order_detail (id, id_order, id_product, warna, posisi_gigi, harga, poin, status, garansi) VALUES ?", [data_detail], (er, rslt) => {
                 console.log(er);
@@ -724,10 +564,10 @@ exports.hapus_team = (req, res, next) => {
 }
 
 exports.show_jadwal = (req, res) => {
-    var bulan = req.body.bulan
-    var tahun = req.body.tahun
+    var tanggal1 = formatDate(req.body.tanggal1)
+    var tanggal2 = formatDate(req.body.tanggal2)
 
-    conn.query("select * from tbl_jadwal_summary where month(tanggal)=" + bulan + " and year(tanggal)=" + tahun + " order by tanggal asc", (err, rows) => {
+    conn.query("select tanggal, count(id) as jumlah from tbl_jadwal where tanggal>='" + tanggal1 + "' and tanggal<='" + tanggal2 + "' group by tanggal order by tanggal asc", (err, rows) => {
         var items = rows
         async.eachSeries(items, (item, cb) => {
             conn.query("select * from tbl_jadwal where tanggal = '" + formatDate(item.tanggal) + "'", (err, row) => {
@@ -735,10 +575,11 @@ exports.show_jadwal = (req, res) => {
                 cb(null);
             })
         }, error => {
-            conn.query("select * from tbl_libur where month(tanggal)=" + bulan + " and year(tanggal)=" + tahun + " order by tanggal asc", (err, liburs) => {
+
+            conn.query("select * from tbl_libur where tanggal>='" + tanggal1 + "' and tanggal<='" + tanggal2 + "' order by tanggal asc", (err, liburs) => {
                 for (let itm of liburs) {
                     itm.jadwal = []
-                    itm.data_libur = [{ colspan: 14, keterangan: itm.keterangan }]
+                    itm.data_libur = [{ colspan: 20, keterangan: itm.keterangan }]
                 }
                 var data = items.concat(liburs)
                 data.sort((a, b) => {
@@ -764,4 +605,95 @@ exports.hapus_order = (req, res, next) => {
             else res.status(400).json(err)
         })
     })
+}
+
+
+exports.update_jadwal = (req, res) => {
+    var label = req.body.label
+    var tanggal = formatDate(req.body.tanggal)
+
+    conn.query("update tbl_jadwal set tanggal = '" + tanggal + "' where label = '" + label + "'", (err, result) => {
+        if (err) rs.status(400).json(err)
+        else res.json(result)
+    })
+}
+
+
+exports.block_jadwal = (req, res) => {
+    var tanggal = formatDate(new Date(req.body.tanggal))
+    var blocked = req.body.blocked
+    var team = req.body.team
+
+    conn.query("select * from tbl_block_jadwal where team = " + team + " and tanggal = '" + tanggal + "'", (err, row)=>{
+        var id = 0
+        if(row.length>0){
+            id = row[0].id
+        }
+        conn.query("REPLACE INTO tbl_block_jadwal SET ?", {id : id, tanggal: tanggal, jumlah: blocked, team : team }, (err, result) => {
+            if (err) res.status(400).json(err)
+            else res.json(result)
+        })
+    })
+
+}
+
+exports.get_blocked = (req, res) => {
+    var tanggal1 = formatDate(req.body.tanggal1)
+    var tanggal2 = formatDate(req.body.tanggal2)
+
+    conn.query("select * from tbl_block_jadwal where tanggal>='" + tanggal1 + "' and tanggal<='" + tanggal2 + "'", (err, rows) => {
+        res.json(rows)
+    })
+}
+
+exports.get_draft_all = (req, res)=>{
+    conn.query("select * from tbl_draft_jadwal order by id asc", (err, rows)=>{
+        res.json(rows)
+    })
+}
+
+exports.get_draft_single = (req, res)=>{
+    var id_order = req.params.id_order
+
+    conn.query("select * from tbl_draft_jadwal where id_order = " + id_order, (err, rows)=>{
+        res.json(rows)
+    })
+}
+
+exports.set_jadwal_draft = (req, res)=>{
+    var data = req.body
+
+    var jadwal = {
+        id_order : data.id_order,
+        id_product : data.id_product,
+        tanggal : data.tanggal,
+        label : data.label,
+        bahan : data.bahan,
+        team : data.team
+    }
+
+    conn.query("INSERT INTO tbl_jadwal SET ?", jadwal, (err, result)=>{
+        conn.query("DELETE from tbl_draft_jadwal where id = " + data.id_draft, (err, rslt)=>{
+
+        })
+        res.json(result)
+    })
+}
+
+exports.update_jadwal_new = (req, res) => {
+    var ids = req.body.ids
+    var tanggal = formatDate(req.body.tanggal)
+    var team = req.body.team
+    console.log(ids)
+    async.eachSeries(ids, (item, cb)=>{
+        conn.query("update tbl_jadwal set tanggal = '" + tanggal + "', team = " + team + " where id = " + item + "", (err, result) => {
+            cb(null)
+        })
+    }, error=>{
+        res.json({error : error})
+    })
+}
+
+exports.get_teams =  (req, res) => {
+    res.json(variables.teams)
 }

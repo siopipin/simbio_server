@@ -1,8 +1,17 @@
 const conn = require('./db')
 
 exports.get_products = (req, res, next)=>{
-    conn.query("select a.id, a.nama, a.id_bahan, a.harga, a.durasi, a.poin, b.nama as bahan from tbl_product a, tbl_bahan b where b.id = a.id_bahan order by b.nama asc", (err, rows)=>{
+    conn.query("select a.id, a.nama, a.id_bahan, a.harga, a.durasi, a.poin, b.nama as bahan, a.publish from tbl_product a, tbl_bahan b where b.id = a.id_bahan order by b.nama asc", (err, rows)=>{
         res.json(rows);
+    })
+}
+
+exports.change_publish_product = (req, res)=>{
+    var id = req.body.id
+    var publish = req.body.publish
+
+    conn.query("update tbl_product set publish = " + publish + " where id = " + id, (err, rslt)=>{
+        res.json(rslt)
     })
 }
 

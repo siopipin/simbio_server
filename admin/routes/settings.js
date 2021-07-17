@@ -27,4 +27,6 @@ router.get('/hari-libur', settingsCtrl.get_hari_libur)
 router.delete('/hari-libur/:id', settingsCtrl.hapus_hari_libur)
 router.post('/hari-libur', settingsCtrl.simpan_hari_libur)
 
+router.post('/change-publish-product', settingsCtrl.change_publish_product)
+
 module.exports = router;

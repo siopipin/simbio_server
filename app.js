@@ -8,6 +8,7 @@ const mobileRoutes = require('./mobile/mobile')
 const adminRoutes = require('./admin/admin')
 
 const estimasi = require('./api/estimasi')
+const slides = require('./api/slides')
 
 app.use(compression())
 app.use(bodyParser.urlencoded({ extended: true}));
@@ -31,6 +32,7 @@ app.use('/admin', adminRoutes)
 
 app.use('/estimasi', estimasi);
 
+app.use('/slides', slides)
 
 app.use('/images', express.static(__dirname + '/assets/images'));
 
