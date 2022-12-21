@@ -42,4 +42,5 @@ router.post('/set-jadwal', ordersCtrl.set_jadwal_draft)
 
 router.get('/teams', ordersCtrl.get_teams)
 
+router.get('/create-jobdesk', ordersCtrl.create_jobdesk)
 module.exports = router;

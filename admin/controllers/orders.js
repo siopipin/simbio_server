@@ -2,7 +2,6 @@ const conn = require('./db')
 const async = require('async')
 const messaging = require('./messaging')
 const variables = require('../../variables')
-const connection = require('./db')
 
 function getDateNow() {
     var dt = new Date()
@@ -45,6 +44,46 @@ function genNoOrder(value) {
         }
     }
     return alpha + number
+}
+
+
+function updateDraftJadwal(id_order, label) {
+    async.parallel({
+        draft: (cb) => {
+            conn.query("select * from tbl_draft_jadwal where id_order = " + id_order, (err, rows) => {
+                cb(null, rows)
+            })
+        },
+        jadwal: (cb) => {
+            conn.query("select * from tbl_jadwal where id_order = " + id_order, (err, rows) => {
+                cb(null, rows)
+            })
+        }
+    }, (error, result) => {
+        var draft = result.draft
+        var jadwal = result.jadwal
+        var jadwal_new = draft.concat(jadwal)
+        var tanggal = formatDate(new Date())
+        conn.query("select a.id, a.id_order, a.id_product, c.nama as bahan_product from tbl_order_detail a, tbl_product b, tbl_bahan c where b.id = a.id_product and c.id = b.id_bahan and a.id_order = " +  id_order, (err, rows) => {
+            var data_jadwal = []
+            for (let item of rows) {
+                if (item.id_product != 19 && item.id_product != 26 && item.bahan_product != 'Resin' && item.bahan_product != 'Porcelain')
+                    data_jadwal.push([0, id_order, item.id_product, label, item.bahan_product, tanggal])
+            }
+
+            var jlh1 = jadwal_new.length
+            var jlh2 = data_jadwal.length
+            if(jlh2 > jlh1){
+                var jlh = jlh2 - jlh1
+                //console.log(jlh)
+                var data = data_jadwal.slice(jlh * -1)
+                //console.log(data)
+                conn.query("INSERT INTO tbl_draft_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data], (err, result) => {
+                    console.log('Selesai set draft_jadwal')
+                })
+            }
+        })
+    })
 }
 
 exports.generate_no_order = (req, res, next) => {
@@ -117,12 +156,12 @@ exports.simpan_preorder = (req, res, next) => {
         if (err) res.status(400).json(err);
         else {
 
-            conn.query("select token from tbl_customers where id = " + order.id_customer, (err, rows) => {
+            conn.query("select token, nama from tbl_customers where id = " + order.id_customer, (err, rows) => {
                 let tokens = []
                 for (let item of rows)
                     if (item.token) tokens.push(item.token)
                 if (tokens.length > 0) {
-                    messaging.sendNotif('Order Baru', 'Order baru telah dibuat dengan ID Order #' + order.id_order, tokens)
+                    messaging.sendMessageToUser(tokens[0], 'Order baru telah dibuat dengan ID Order #' + order.id_order, 'Order Baru', order.id_order, result.insertId, '', rows[0].nama, order.nama_pasien) //('Order Baru', 'Order baru telah dibuat dengan ID Order #' + order.id_order, tokens)
                 }
             })
 
@@ -266,12 +305,15 @@ function draftJadwal(order, detail_order) {
     let tanggal = formatDate(order.tanggal)
     var data_jadwal = []
     for (let item of detail_order) {
-        data_jadwal.push([0, order.id, item.id_product, order.id_order, item.bahan_product, tanggal])
+        if (item.id_product != 19 && item.id_product != 26 && item.bahan_product != 'Resin' && item.bahan_product != 'Porcelain')
+            data_jadwal.push([0, order.id, item.id_product, order.id_order, item.bahan_product, tanggal])
     }
 
-    conn.query("INSERT INTO tbl_draft_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
-        console.log('Selesai set draft_jadwal')
-    })
+    if (data_jadwal.length > 0) {
+        conn.query("INSERT INTO tbl_draft_jadwal (id, id_order, id_product, label, bahan, tanggal) VALUES ?", [data_jadwal], (err, result) => {
+            console.log('Selesai set draft_jadwal')
+        })
+    }
 
 }
 
@@ -306,15 +348,15 @@ exports.simpan_order = (req, res, next) => {
     conn.query("INSERT INTO tbl_order SET ?", order, (err, result) => {
         if (err) res.status(400).json(err);
         else {
-            if(order.poin>0){
+            if (order.poin > 0) {
                 conn.query("update tbl_customers set poin = " + sisa_poin + " where id = " + order.id_customer, (errr, rsltt) => { })
-                var history_poin =  {
-                    id_customer : order.id_customer,
-                    id_order : result.insertId,
-                    poin : order.poin,
-                    flag : 0
+                var history_poin = {
+                    id_customer: order.id_customer,
+                    id_order: result.insertId,
+                    poin: order.poin,
+                    flag: 0
                 }
-                conn.query("INSERT INTO tbl_history_poin SET ?", history_poin, (errr, rsltt)=>{})
+                conn.query("INSERT INTO tbl_history_poin SET ?", history_poin, (errr, rsltt) => { })
             }
             var id = result.insertId;
             var data_detail = []
@@ -323,7 +365,7 @@ exports.simpan_order = (req, res, next) => {
                 data_detail.push([id, item.id_product, item.warna, item.posisi, item.harga_product, item.poin, 1, item.garansi])
             }
             conn.query("INSERT INTO tbl_order_detail (id_order, id_product, warna, posisi_gigi, harga, poin, status, garansi) VALUES ?", [data_detail], (er, rslt) => {
-                if(set_jadwal == 1) draftJadwal(order, detail_order)
+                if (set_jadwal == 1) draftJadwal(order, detail_order)
                 else tentukanJadwal(order, detail_order)
                 console.log(er);
                 res.json(result);
@@ -342,7 +384,7 @@ exports.list_order = (req, res, next) => {
 exports.get_view_order = (req, res, next) => {
     var id = req.params.id
 
-    conn.query("select a.id, a.id_order, a.id_customer, a.nama_pasien, b.nama as customer, b.email as email_customer, b.no_hp as no_hp_customer, b.alamat as alamat_customer, b.poin as poin_customer, a.tanggal, a.tanggal_selesai, a.tanggal_target_selesai, a.status, a.ongkir, a.extra_charge, a.poin, a.kode_voucher, a.diskon, a.status_invoice, a.tanggal_invoice from tbl_order a LEFT JOIN tbl_customers b ON a.id_customer = b.id WHERE a.id = " + id, (err, rows) => {
+    conn.query("select a.id, a.id_order, a.id_customer, a.nama_pasien, b.nama as customer, b.email as email_customer, b.no_hp as no_hp_customer, b.alamat as alamat_customer, b.poin as poin_customer, a.tanggal, a.tanggal_selesai, a.tanggal_target_selesai, a.keterangan, a.status, a.ongkir, a.extra_charge, a.poin, a.kode_voucher, a.diskon, a.status_invoice, a.tanggal_invoice from tbl_order a LEFT JOIN tbl_customers b ON a.id_customer = b.id WHERE a.id = " + id, (err, rows) => {
         var item = rows.length > 0 ? rows[0] : {};
         var details = []
         if (rows.length > 0) {
@@ -362,6 +404,8 @@ exports.edit_order = (req, res, next) => {
     var detail_order = req.body.detail_order
     var delete_details = req.body.delete_details;
 
+    console.log(order)
+
     var data_edit = {
         id_customer: order.id_customer,
         nama_pasien: order.nama_pasien,
@@ -371,7 +415,8 @@ exports.edit_order = (req, res, next) => {
         ongkir: order.ongkir,
         diskon: order.diskon,
         kode_voucher: order.kode_voucher,
-        tanggal: order.tanggal
+        tanggal: order.tanggal,
+        keterangan: order.keterangan
     }
 
     if (order.tanggal_selesai) {
@@ -387,6 +432,9 @@ exports.edit_order = (req, res, next) => {
     conn.query("UPDATE tbl_order set ? where id = " + order.id, data_edit, (err, result) => {
         if (err) res.status(400).json(err);
         else {
+            if(data_edit.status == 2){
+                messaging.finishOrder(order.id)
+            }
             conn.query("update tbl_customers set poin = " + order.poin_customer + " where id = " + order.id_customer, (errr, rsltt) => { })
             var id = result.insertId;
             var data_detail = []
@@ -396,13 +444,18 @@ exports.edit_order = (req, res, next) => {
             if (delete_details.length > 0) {
                 conn.query("DELETE FROM tbl_order_detail where id IN (?)", [delete_details], (err, rslt) => {
                     conn.query("REPLACE INTO tbl_order_detail (id, id_order, id_product, warna, posisi_gigi, harga, poin, status, garansi) VALUES ?", [data_detail], (er, rslt) => {
-                        console.log(er);
+                        //console.log(er);
+
+                        //update draft
+                        updateDraftJadwal(order.id, order.id_order)
                         res.json(result);
                     })
                 })
             } else {
                 conn.query("REPLACE INTO tbl_order_detail (id, id_order, id_product, warna, posisi_gigi, harga, poin, status, garansi) VALUES ?", [data_detail], (er, rslt) => {
-                    console.log(er);
+                    //console.log(er);
+                    //update draft
+                    updateDraftJadwal(order.id, order.id_order)
                     res.json(result);
                 })
             }
@@ -567,10 +620,10 @@ exports.show_jadwal = (req, res) => {
     var tanggal1 = formatDate(req.body.tanggal1)
     var tanggal2 = formatDate(req.body.tanggal2)
 
-    conn.query("select tanggal, count(id) as jumlah from tbl_jadwal where tanggal>='" + tanggal1 + "' and tanggal<='" + tanggal2 + "' group by tanggal order by tanggal asc", (err, rows) => {
+    conn.query("select a.tanggal, count(a.id) as jumlah from tbl_jadwal a, tbl_order b where a.id_order = b.id and (b.status = 0 or b.status = 1) and a.tanggal>='" + tanggal1 + "' and a.tanggal<='" + tanggal2 + "' group by a.tanggal order by a.tanggal asc", (err, rows) => {
         var items = rows
         async.eachSeries(items, (item, cb) => {
-            conn.query("select * from tbl_jadwal where tanggal = '" + formatDate(item.tanggal) + "'", (err, row) => {
+            conn.query("select a.id, a.id_order, a.label, a.id_product, a.bahan, a.team, a.tanggal from tbl_jadwal a, tbl_order b where a.id_order = b.id and (b.status = 0 or b.status = 1) and a.tanggal = '" + formatDate(item.tanggal) + "'", (err, row) => {
                 item.jadwal = row
                 cb(null);
             })
@@ -624,12 +677,12 @@ exports.block_jadwal = (req, res) => {
     var blocked = req.body.blocked
     var team = req.body.team
 
-    conn.query("select * from tbl_block_jadwal where team = " + team + " and tanggal = '" + tanggal + "'", (err, row)=>{
+    conn.query("select * from tbl_block_jadwal where team = " + team + " and tanggal = '" + tanggal + "'", (err, row) => {
         var id = 0
-        if(row.length>0){
+        if (row.length > 0) {
             id = row[0].id
         }
-        conn.query("REPLACE INTO tbl_block_jadwal SET ?", {id : id, tanggal: tanggal, jumlah: blocked, team : team }, (err, result) => {
+        conn.query("REPLACE INTO tbl_block_jadwal SET ?", { id: id, tanggal: tanggal, jumlah: blocked, team: team }, (err, result) => {
             if (err) res.status(400).json(err)
             else res.json(result)
         })
@@ -646,34 +699,68 @@ exports.get_blocked = (req, res) => {
     })
 }
 
-exports.get_draft_all = (req, res)=>{
-    conn.query("select * from tbl_draft_jadwal order by id asc", (err, rows)=>{
+exports.get_draft_all = (req, res) => {
+    conn.query("select * from tbl_draft_jadwal order by id asc", (err, rows) => {
         res.json(rows)
     })
 }
 
-exports.get_draft_single = (req, res)=>{
+exports.get_draft_single = (req, res) => {
     var id_order = req.params.id_order
 
-    conn.query("select * from tbl_draft_jadwal where id_order = " + id_order, (err, rows)=>{
+    conn.query("select * from tbl_draft_jadwal where id_order = " + id_order, (err, rows) => {
         res.json(rows)
     })
 }
 
-exports.set_jadwal_draft = (req, res)=>{
+exports.set_jadwal_draft = (req, res) => {
     var data = req.body
 
     var jadwal = {
-        id_order : data.id_order,
-        id_product : data.id_product,
-        tanggal : data.tanggal,
-        label : data.label,
-        bahan : data.bahan,
-        team : data.team
+        id_order: data.id_order,
+        id_product: data.id_product,
+        tanggal: data.tanggal,
+        label: data.label,
+        bahan: data.bahan,
+        team: data.team
     }
 
-    conn.query("INSERT INTO tbl_jadwal SET ?", jadwal, (err, result)=>{
-        conn.query("DELETE from tbl_draft_jadwal where id = " + data.id_draft, (err, rslt)=>{
+    conn.query("INSERT INTO tbl_jadwal SET ?", jadwal, (err, result) => {
+
+        conn.query("select tanggal from tbl_order where id = " + jadwal.id_order, (err3, row) => {
+            var tanggal_masuk = formatDate(row[0].tanggal)
+            var id_jobdesk = jadwal.label + '_' + jadwal.team
+            conn.query("select tgl_target_selesai from tbl_jobdesk where id = '" + id_jobdesk + "'", (err, rw)=>{
+                if(rw.length>0){
+                    var dt1 = new Date(rw[0].tgl_target_selesai)
+                    var dt2 = new Date(jadwal.tanggal)
+
+                    if(dt2.getTime() > dt1.getTime()){
+                        conn.query("update tbl_jobdesk set tgl_target_selesai = '" + jadwal.tanggal + "' where id = '" + id_jobdesk + "'", (err, rslt_)=>{})
+                    }
+                }else{
+                    conn.query("INSERT INTO tbl_jobdesk SET ?", { id: jadwal.label + '_' + jadwal.team, id_order: jadwal.label, team: jadwal.team, tgl_masuk: tanggal_masuk, tgl_target_selesai: jadwal.tanggal, selesai: 0 }, (err4, rslt) => {
+                        if (!err4) {
+                            var data = [
+                                [jadwal.label + '_' + jadwal.team, 1, null],
+                                [jadwal.label + '_' + jadwal.team, 2, null],
+                                [jadwal.label + '_' + jadwal.team, 3, null],
+                                [jadwal.label + '_' + jadwal.team, 4, null],
+                                [jadwal.label + '_' + jadwal.team, 5, null],
+                                [jadwal.label + '_' + jadwal.team, 6, null]
+                            ]
+        
+                            conn.query("INSERT INTO tbl_jobdesk_detail (id_jobdesk, id_step, tanggal) VALUES ?", [data], (err, rlst) => {
+        
+                            })
+                        }
+                    })
+                }
+                
+            })
+        })
+
+        conn.query("DELETE from tbl_draft_jadwal where id = " + data.id_draft, (err, rslt) => {
 
         })
         res.json(result)
@@ -684,16 +771,107 @@ exports.update_jadwal_new = (req, res) => {
     var ids = req.body.ids
     var tanggal = formatDate(req.body.tanggal)
     var team = req.body.team
-    console.log(ids)
-    async.eachSeries(ids, (item, cb)=>{
+    var label = req.body.label
+
+    //console.log(ids)
+    async.eachSeries(ids, (item, cb) => {
         conn.query("update tbl_jadwal set tanggal = '" + tanggal + "', team = " + team + " where id = " + item + "", (err, result) => {
             cb(null)
         })
-    }, error=>{
-        res.json({error : error})
+    }, error => {
+
+        conn.query("select * from tbl_jobdesk where id_order = '" + label + "'", (err, row) => {
+
+            if (row.filter(it => it.team == team) > 0) {
+                conn.query("select * from tbl_jadwal where label = '" + label + "' and team = " + team + " order by tanggal desc limit 1", (err, rw) => {
+                    var tgl = formatDate(rw[0].tanggal)
+                    conn.query("update tbl_jobdesk set tgl_target_selesai = '" + tgl + "', team = " + team + " where id_order = '" + label + "'", (err, rslt) => { })
+                })
+            } else {
+                var team2 = req.body.prevTeam
+                console.log(team2)
+
+                conn.query("select * from tbl_jadwal where label = '" + label + "' and team = " + team2, (err, rw) => {
+                    if (rw.length > 0) {
+
+                        conn.query("REPLACE INTO tbl_jobdesk SET ?", { id: label + '_' + team, id_order: label, team: team, tgl_masuk: formatDate(row[0].tgl_masuk), tgl_target_selesai: tanggal, selesai: 0 }, (err4, rslt) => {
+                            conn.query("select * from tbl_jobdesk_detail where id_jobdesk = '" + label + '_' + team + "'", (err, rw2) => {
+                                if (rw2.length <= 0) {
+                                    conn.query("DELETE from tbl_jobdesk_detail where id_jobdesk = '" + label + '_' + team + "'", (rr, rsl) => { })
+                                    var data = [
+                                        [label + '_' + team, 1, null],
+                                        [label + '_' + team, 2, null],
+                                        [label + '_' + team, 3, null],
+                                        [label + '_' + team, 4, null],
+                                        [label + '_' + team, 5, null],
+                                        [label + '_' + team, 6, null]
+                                    ]
+
+                                    conn.query("INSERT INTO tbl_jobdesk_detail (id_jobdesk, id_step, tanggal) VALUES ?", [data], (err, rlst) => {
+
+                                    })
+                                }
+                            })
+                        })
+                    } else {
+
+                        conn.query("DELETE from tbl_jobdesk where id_order = '" + label + "' and team = " + team2, (err, rlst) => { })
+                        conn.query("select * from tbl_jadwal where label = '" + label + "' and team = " + team + " order by tanggal desc limit 1", (err, rw) => {
+                            var tgl = formatDate(rw[0].tanggal)
+
+                            conn.query("REPLACE INTO tbl_jobdesk SET ?", { id: label + '_' + team, id_order: label, team: team, tgl_masuk: formatDate(row[0].tgl_masuk), tgl_target_selesai: tgl, selesai: 0 }, (err4, rslt) => {
+                                conn.query("select * from tbl_jobdesk_detail where id_jobdesk = '" + label + '_' + team + "'", (err, rw2) => {
+                                    if (rw2.length <= 0) {
+                                        conn.query("DELETE from tbl_jobdesk_detail where id_jobdesk = '" + label + '_' + team + "'", (rr, rsl) => { })
+                                        var data = [
+                                            [label + '_' + team, 1, null],
+                                            [label + '_' + team, 2, null],
+                                            [label + '_' + team, 3, null],
+                                            [label + '_' + team, 4, null],
+                                            [label + '_' + team, 5, null],
+                                            [label + '_' + team, 6, null]
+                                        ]
+
+                                        conn.query("INSERT INTO tbl_jobdesk_detail (id_jobdesk, id_step, tanggal) VALUES ?", [data], (err, rlst) => {
+
+                                        })
+                                    }
+                                })
+                            })
+                        })
+                    }
+                })
+            }
+        })
+
+        res.json({ error: error })
     })
 }
 
-exports.get_teams =  (req, res) => {
+exports.get_teams = (req, res) => {
     res.json(variables.teams)
+}
+
+
+exports.create_jobdesk = (req, res) => {
+    conn.query("select distinct a.label, a.tanggal, b.tanggal as tgl_masuk , a.team from tbl_jadwal a, tbl_order b where a.tanggal >='2021-07-27' and b.id = a.id_order group by a.label, a.team", (err, rows) => {
+        async.eachSeries(rows, (item, cb) => {
+            conn.query("INSERT INTO tbl_jobdesk SET ?", { id: item.label + '_' + item.team, id_order: item.label, team: item.team, tgl_masuk: item.tgl_masuk, tgl_target_selesai: item.tanggal, selesai: 0 }, (err, rslt) => {
+                var data = [
+                    [item.label + '_' + item.team, 1, null],
+                    [item.label + '_' + item.team, 2, null],
+                    [item.label + '_' + item.team, 3, null],
+                    [item.label + '_' + item.team, 4, null],
+                    [item.label + '_' + item.team, 5, null],
+                    [item.label + '_' + item.team, 6, null]
+                ]
+
+                conn.query("INSERT INTO tbl_jobdesk_detail (id_jobdesk, id_step, tanggal) VALUES ?", [data], (err, rlst) => {
+                    cb(null)
+                })
+            })
+        }, error => {
+            res.end('Selesai')
+        })
+    })
 }

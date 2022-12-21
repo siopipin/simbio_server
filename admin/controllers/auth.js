@@ -4,7 +4,7 @@ const conn = require('./db');
 
 exports.get_profil = (req, res, next)=>{
     var id = req.userData.userId;
-    conn.query("select id, nama from tbl_pegawai where id = " + id, (err, row)=>{
+    conn.query("select * from tbl_pegawai where id = " + id, (err, row)=>{
         res.json(row[0])
     })
 }
@@ -12,7 +12,7 @@ exports.get_profil = (req, res, next)=>{
 exports.ganti_password = (req, res)=>{
     var id = req.userData.userId
     var password = req.body.password
-    var new_password = req.body.password
+    var new_password = req.body.password1
 
     conn.query("select id, email, password, privilege from tbl_pegawai where id = " + id, (err, rw)=>{
         if(rw.length < 1){
@@ -27,7 +27,9 @@ exports.ganti_password = (req, res)=>{
                     if (error) {
                         res.status(500).json({ message : 'Terjadi kesalahan pada server' })
                     } else {
+                       
                         var password_baru = hash
+                       
                         conn.query("UPDATE tbl_pegawai SET password = '" + password_baru + "' where id = " + id, (err, result)=>{
                             if(err) res.status(400).json({ message : 'Terjadi kesalahan pada server' })
                             else res.json({message : 'Password berhasil diganti'})
@@ -42,7 +44,7 @@ exports.ganti_password = (req, res)=>{
 exports.do_login = (req, res, next)=>{
     var email = req.body.email;
     var password = req.body.password;
-    conn.query("select id, email, password, privilege from tbl_pegawai where email = '" + email + "' and privilege = 1", (err, rw)=>{
+    conn.query("select id, email, password, privilege from tbl_pegawai where email = '" + email + "' and (privilege = 1 or privilege = 3)", (err, rw)=>{
         if(rw.length < 1){
             return res.status(401).json({message : 'Email & password anda tidak valid'});
         }

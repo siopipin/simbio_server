@@ -7,6 +7,12 @@ exports.get_pie_chart_product = (req, res, next)=>{
     })
 }
 
+exports.get_pie_chart_tahap = (req, res, next)=>{
+    conn.query("select id_step, count(id) as jumlah from tbl_jobdesk_detail where tanggal is NULL group by id_step order by id_step asc", (err, rows)=>{
+        res.json(rows);
+    })
+}
+
 exports.get_chart_radar = (req, res, next)=>{
     var td = new Date();
    
@@ -61,7 +67,7 @@ exports.get_chart_invoice = (req, res, next)=>{
     var year = new Date().getFullYear();
     var month = new Date().getMonth()
     var tgl = []
-    for(var i = 0; i<=5; i++){
+    for(var i = 0; i<=11; i++){
         var dt = new Date(year, month - i, 1)
         tgl.push({month : dt.getMonth() + 1, year : dt.getFullYear()})
     }

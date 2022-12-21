@@ -6,7 +6,7 @@ module.exports = {
         {
             id : 1,
             nama : 'Excel',
-            size : 10
+            size : 8
         },
         {
             id : 2,
@@ -16,7 +16,7 @@ module.exports = {
         {
             id : 3,
             nama : 'Fascina',
-            size : 5
+            size : 7
         }
     ]
 }

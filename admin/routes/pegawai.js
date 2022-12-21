@@ -23,5 +23,8 @@ router.get('/single/:id', pegawaiCtrl.get_pegawai_single)
 router.post('/edit', uploadImages.single('foto'), pegawaiCtrl.edit_pegawai)
 
 router.get('/per-privilege/:privilege', pegawaiCtrl.get_pegawai_per_privilege)
+router.post('/total-orders', pegawaiCtrl.total_handle)
+router.post('/order-bulanan', pegawaiCtrl.get_orders_bulanan)
+router.get('/ratings/:id', pegawaiCtrl.get_ratings)
 
 module.exports = router;

@@ -5,7 +5,7 @@ const variables = require('../../variables')
 exports.get_recent = (req, res, next) => {
     var userId = req.userData.userId;
 
-    conn.query("select a.channel, a.room, b.id_order as nama, c.nama as customer, b.nama_pasien from tbl_chats a, tbl_order b, tbl_customers c where b.id = a.channel and c.id = b.id_customer and a.room = 'order' group by a.channel", (err, rows) => {
+    conn.query("select a.channel, a.room, b.id_order as nama, c.nama as customer, b.nama_pasien from tbl_chats a, tbl_order b, tbl_customers c where b.status != 2 and b.id = a.channel and c.id = b.id_customer and a.room = 'order' group by a.channel", (err, rows) => {
         var items = rows;
 
         async.eachSeries(items, (item, cb) => {

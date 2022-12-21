@@ -9,6 +9,7 @@ const adminRoutes = require('./admin/admin')
 
 const estimasi = require('./api/estimasi')
 const slides = require('./api/slides')
+const level = require('./api/level_customer')
 
 app.use(compression())
 app.use(bodyParser.urlencoded({ extended: true}));
@@ -33,6 +34,8 @@ app.use('/admin', adminRoutes)
 app.use('/estimasi', estimasi);
 
 app.use('/slides', slides)
+
+app.use('/level', level)
 
 app.use('/images', express.static(__dirname + '/assets/images'));
 
