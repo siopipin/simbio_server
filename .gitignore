@@ -1,5 +1,5 @@
 #Don't track content of these folders
-assets/images
+#assets/images
 
 # OS X
 .DS_Store*
